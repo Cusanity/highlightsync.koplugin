@@ -6,7 +6,7 @@ local FFIUtil = require("ffi/util")
 local T = FFIUtil.template
 local InfoMessage = require("ui/widget/infomessage")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
-local _ = require("gettext")
+local _ = require("highlightsync_gettext")
 local SyncService = require("frontend/apps/cloudstorage/syncservice")
 local Merge = require("merge")
 local rapidjson = require("rapidjson")
@@ -81,8 +81,8 @@ function Highlightsync:init()
     end
 
     Highlightsync.settings = G_reader_settings:readSetting("highlight_sync", self.default_settings)
-    self:onDispatcherRegisterActions(
-    self.ui.menu:registerToMainMenu(self))
+    self:onDispatcherRegisterActions()
+    self.ui.menu:registerToMainMenu(self)
 end
 
 
