@@ -1,87 +1,68 @@
-# 📚 HighlightSync Plugin for KOReader
+# 📚 Highlight Sync 插件 - KOReader
 
-**HighlightSync** is a plugin for [KOReader](https://github.com/koreader/koreader) that **synchronizes and merges your highlights, notes, and bookmarks** across multiple devices or cloud backup locations. It allows you to sync highlights made offline on two or more devices, ensuring that no data is lost when syncing.
+[English](https://github.com/gitalexcampos/highlightsync.koplugin)
 
-Supports popular cloud services like **WebDAV** and **Dropbox**, helping you keep your annotations consistent no matter which device you’re reading on.
+跨设备同步 KOReader 的划线、笔记和书签。
 
----
+> Fork 自 [koreader-Highlight-Sync](https://github.com/gitalexcampos/koreader-Highlight-Sync)，增加了中文本地化支持, [修复了多设备同步时的重复标注问题](https://github.com/gitalexcampos/koreader-Highlight-Sync/pull/20)。
 
-## ⚠️ Beta Warning
-
-This plugin is currently in **beta**. Use at your own risk.
-
-While it has been tested on several platforms, the author is **not responsible for any data loss**. Please back up your annotations regularly.
+![Platform](https://img.shields.io/badge/平台-KOReader-green.svg)
+![License](https://img.shields.io/badge/许可-AGPL--v3-blue.svg)
 
 ---
 
-## ✅ Tested Devices
+## 功能
 
-- KOReader on **Linux**
-- **Boox Go 6**
-- **Boox Go 10.3**
-- **Android 15**
-
-More devices may work — feel free to open an issue or pull request with your results!
-
----
-
-## ✨ Features
-
-- 🔄 **Automatic & Manual Sync:** Configurable options to sync automatically on **book open, close, or resume**, or sync manually via menu/gestures.
-- 🛡️ **Conflict-free Merging:** Highlights made offline on different devices are combined intelligently without overwriting each other.
-- 📝 **True Offline Freedom:** Read and annotate on your Kindle and Boox separately; sync them all when you get Wi-Fi.
-- ☁️ Works with **WebDAV** and **Dropbox**.
-- 📅 **Smart Updates:** Syncs highlight edits based on the latest timestamp.
-- ⚡ **Lightweight** and easy to install.
+- 🔄 **手动同步**：划线、笔记、书签
+- 📝 **智能合并**：离线在多设备做的标注会自动合并
+- ☁️ **云存储**：支持 WebDAV 和 Dropbox
+- 📅 **时间戳**：基于最新更新时间决定保留哪个版本
+- 🌐 **中文支持**：完整的简体/繁体中文界面
 
 ---
 
-## 📥 Installation
+## 安装
 
-To install the plugin:
-
-1. Download the **latest release** from the [GitHub repository](https://github.com/gitalexcampos/koreader-Highlight-Sync/releases).
-2. **Extract the downloaded file** and locate the `highlightsync.koplugin` folder.
-3. Copy the `highlightsync.koplugin` folder.
-4. Place it inside the `koreader/plugins/` directory on your KOReader device.
+1. 从 [GitHub](https://github.com/Cusanity/highlightsync.koplugin) 下载插件
+2. 解压后找到 `highlightsync.koplugin` 文件夹
+3. 将该文件夹复制到 KOReader 设备的 `koreader/plugins/` 目录
 
 ---
 
-## 🔧 Setup
+## 使用方法
 
-1. Open KOReader.
-2. Go to the **Main Menu > Tools > Highlight Sync > Sync Cloud**.
-3. Set up your **cloud service** (WebDAV or Dropbox).
-4. Select the **folder** where your **JSON files** containing the highlights of your books are or will be stored. (This folder **does not need** to be the same as your ebooks folder.)
-   ⚠️ **If you change this folder after you’ve already synced a book**, you **must manually move the book's JSON file** from the old folder to the new one in your cloud service. If the plugin doesn’t find the file in the new location, it will assume that the highlights were **deleted on another device** and will remove them during sync.
-5. Configure your preferred **Automatic Sync** settings (Open, Close, or Resume) in the settings menu, or use the manual **Sync Highlights** button.
+1. 打开 KOReader
+2. **主菜单 → 工具 → Highlight Sync → Sync Cloud**
+3. 配置云服务（WebDAV 或 Dropbox）
+4. 选择存储 JSON 文件的文件夹
+5. 选择 **同步** 同步标注
 
----
-
-## ⚠️ Important Configuration Notes
-
-### 📂 Hash-based Metadata (Sidecar Folder)
-If you use KOReader's **"Hash based"** setting for metadata location (instead of the default sidecar folder next to the file), the plugin will generate the sync filename based on that hash (e.g., `c5a2f1...json`) instead of the book title.
-
-**Crucial:** You must ensure **ALL your devices use the same metadata setting**.
-* If Device A uses **Hash-based** and Device B uses **File location**, Device A will look for a hashed filename while Device B looks for the book title filename. They will **not** see each other's highlights.
-
-### ⏳ Sync Freeze & Reload
-During synchronization, you might experience a **brief freeze** (UI blocking) for a few seconds.
-* This is normal behavior due to KOReader's single-core architecture handling the network request and JSON processing.
-* After syncing, the plugin will trigger a **document reload**. This is necessary for KOReader to visually render the newly imported highlights on the page.
+⚠️ **注意**：如果更改同步文件夹，需要手动移动已有的 JSON 文件到新位置。
 
 ---
 
-## 🛠 Known Limitations
+## 已测试环境 (KOReader 2025.10)
 
-- The **book names** (or hashes, if configured) on the devices must be **exactly the same** for syncing to work correctly.
-- If two highlights start at the same position but end at different ones, the **most recent one is kept**.
-- This is an early version — feedback is welcome!
-
+- Linux
+- Kindle Scribe
+- Android 16
 
 ---
 
-## 🤝 Contributing
+## 已知限制
 
-Pull requests and issue reports are welcome! If you have ideas or find bugs, feel free to open an issue.
+- 书籍文件名必须在各设备上**完全相同**
+- 若两个划线起始位置相同但结束位置不同，保留最新的那个
+- Beta 阶段，请定期备份标注数据
+
+---
+
+## 贡献
+
+欢迎 PR 和 Issue！
+
+---
+
+## 许可
+
+GNU Affero General Public License v3
