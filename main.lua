@@ -1,4 +1,5 @@
 local Dispatcher = require("dispatcher")  -- luacheck:ignore
+local Device = require("device")
 local UIManager = require("ui/uimanager")
 local ButtonDialog = require("ui/widget/buttondialog")
 local ConfirmBox = require("ui/widget/confirmbox")
@@ -12,6 +13,9 @@ local Merge = require("merge")
 local rapidjson = require("rapidjson")
 local NetworkMgr = require("ui/network/manager")
 local logger = require("logger")
+local time = require("ui/time")
+
+local SYNC_DEBOUNCE_DELAY = time.s(25)
 
 local is_reloading_due_to_sync = false
 
@@ -128,7 +132,8 @@ function Highlightsync:onDispatcherRegisterActions()
 end
 
 Highlightsync.default_settings = {
-       is_enabled = true,
+    auto_sync = false,
+    pages_before_update = nil,
 }
 
 
@@ -139,73 +144,208 @@ function Highlightsync:init()
     end
 
     self.is_syncing = false
+    self.sync_timestamp = 0
+    self.page_update_counter = 0
+    self.last_page = -1
+    self.periodic_sync_scheduled = false
+    self.reload_task = nil
+
+    -- Like kosync, use an instance-specific task closure for safe scheduling/unscheduling.
+    self.periodic_sync_task = function()
+        self.periodic_sync_scheduled = false
+        self.page_update_counter = 0
+        -- Do not force networking for periodic syncs; rely on existing connection.
+        self:SyncBookHighlights(true, false, false)
+    end
 
     Highlightsync.settings = G_reader_settings:readSetting("highlight_sync", self.default_settings)
+
+    -- Migrate from the old per-event toggles to the unified auto_sync flag.
+    if self.settings.sync_on_open or self.settings.sync_on_close or self.settings.sync_on_resume then
+        self.settings.auto_sync = true
+        self.settings.sync_on_open = nil
+        self.settings.sync_on_close = nil
+        self.settings.sync_on_resume = nil
+        G_reader_settings:saveSetting("highlight_sync", self.settings)
+    end
+
+    -- Disable auto_sync if wifi_enable_action was reset to "prompt" behind our back,
+    -- mirroring kosync's guard to avoid unanticipated WiFi-toggle prompts.
+    if self.settings.auto_sync and Device:hasSeamlessWifiToggle()
+    and G_reader_settings:readSetting("wifi_enable_action") ~= "turn_on" then
+        self.settings.auto_sync = false
+        logger.warn("Highlightsync: Automatic sync disabled because wifi_enable_action is not turn_on")
+    end
+
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
 end
 
 function Highlightsync:onReaderReady()
-
     if is_reloading_due_to_sync then
         is_reloading_due_to_sync = false
-        return 
-    end
-
-    if self.settings.sync_on_open and self:canSync() then
-        UIManager:nextTick(function()
-            self:SyncBookHighlights(false, true)
-        end)
-    end
-end
-
-function Highlightsync:onCloseDocument()
-
-    if is_reloading_due_to_sync then
+        -- Still register events on reload; debounce will prevent a redundant sync.
+        self:registerEvents()
+        self.last_page = self.ui:getCurrentPage()
         return
     end
 
-
-    if self.settings.sync_on_close and self:canSync() then
-        -- Sincroniza e sai (sem reload, pois estamos saindo)
-        self:SyncBookHighlights(false, false) 
-    end
-end
-
-function Highlightsync:onResume()
-    
-    if self.settings.sync_on_resume then
+    if self.settings.auto_sync then
         UIManager:nextTick(function()
-            if NetworkMgr:isWifiOn() then
-                self:SyncBookHighlights(false, true)
-                self.settings.pending_sync = false
-                G_reader_settings:saveSetting("highlight_sync", self.settings)
-            end
+            -- silent=true (background), reload=true (apply incoming highlights), interactive=false
+            self:SyncBookHighlights(true, true, false)
         end)
     end
+    self:registerEvents()
+    self.last_page = self.ui:getCurrentPage()
+end
 
+-- Dynamically wire or unwire all auto-sync event handlers based on the auto_sync toggle.
+-- Mirrors kosync's registerEvents() pattern exactly.
+function Highlightsync:registerEvents()
+    if self.settings.auto_sync then
+        self.onCloseDocument        = self._onCloseDocument
+        self.onPageUpdate           = self._onPageUpdate
+        self.onResume               = self._onResume
+        self.onSuspend              = self._onSuspend
+        self.onNetworkConnected     = self._onNetworkConnected
+        self.onNetworkDisconnecting = self._onNetworkDisconnecting
+    else
+        self.onCloseDocument        = nil
+        self.onPageUpdate           = nil
+        self.onResume               = nil
+        self.onSuspend              = nil
+        self.onNetworkConnected     = nil
+        self.onNetworkDisconnecting = nil
+    end
+end
+
+function Highlightsync:_onCloseDocument()
+    logger.dbg("Highlightsync: onCloseDocument")
+    if is_reloading_due_to_sync then return end
+    self.onResume  = nil
+    self.onSuspend = nil
+    local server = self.settings.sync_server
+    if not server then return end
+    -- Dropbox: block until online. WebDAV: skip if offline (deferred retry fires post-teardown).
+    if server.type == "dropbox" then
+        NetworkMgr:goOnlineToRun(function()
+            self:SyncBookHighlights(true, false, false)
+        end)
+    else
+        if NetworkMgr:isConnected() then
+            self:SyncBookHighlights(true, false, false)
+        end
+    end
+end
+
+function Highlightsync:_onResume()
+    logger.dbg("Highlightsync: onResume")
+    -- Skip if WiFi restore will fire a NetworkConnected event (avoids duplicate sync).
+    if Device:hasWifiRestore() and NetworkMgr.wifi_was_on and G_reader_settings:isTrue("auto_restore_wifi") then
+        return
+    end
+    UIManager:scheduleIn(1, function()
+        self:SyncBookHighlights(true, true, false)
+    end)
+end
+
+function Highlightsync:_onSuspend()
+    logger.dbg("Highlightsync: onSuspend")
+    self:SyncBookHighlights(true, false, false)
+end
+
+function Highlightsync:_onNetworkConnected()
+    logger.dbg("Highlightsync: onNetworkConnected")
+    UIManager:scheduleIn(0.5, function()
+        self:SyncBookHighlights(true, false, false)
+    end)
+end
+
+function Highlightsync:_onNetworkDisconnecting()
+    logger.dbg("Highlightsync: onNetworkDisconnecting")
+    self:SyncBookHighlights(true, false, false)
+end
+
+function Highlightsync:_onPageUpdate(page)
+    if page == nil then return end
+    if self.last_page ~= page then
+        self.last_page = page
+        self.page_update_counter = self.page_update_counter + 1
+        if self.periodic_sync_scheduled
+        or (self.settings.pages_before_update and self.page_update_counter >= self.settings.pages_before_update) then
+            self:schedulePeriodicSync()
+        end
+    end
+end
+
+function Highlightsync:schedulePeriodicSync()
+    UIManager:unschedule(self.periodic_sync_task)
+    UIManager:scheduleIn(10, self.periodic_sync_task)
+    self.periodic_sync_scheduled = true
+end
+
+function Highlightsync:onCloseWidget()
+    UIManager:unschedule(self.periodic_sync_task)
+    self.periodic_sync_task = nil
+    -- Cancel any pending deferred reload so it doesn't fire on a torn-down document.
+    if self.reload_task then
+        UIManager:unschedule(self.reload_task)
+        self.reload_task = nil
+        is_reloading_due_to_sync = false
+    end
+end
+
+function Highlightsync:getSyncPeriod()
+    if not self.settings.auto_sync then
+        return _("Not available")
+    end
+    local period = self.settings.pages_before_update
+    if period and period > 0 then
+        return period
+    end
+    return _("Never")
 end
 
 
 
-function Highlightsync:onSync(local_path, cached_path, income_path, reload)
+function Highlightsync:onSync(local_path, cached_path, income_path, reload, sidecar_dir, file_name, data_annotations)
 
-    local local_highlights  = DataAnnotations --read_json_file(local_path)  or {}
+    local local_highlights  = data_annotations
     local cached_highlights = read_json_file(cached_path) or {}
     local income_highlights = read_json_file(income_path) or {}
 
     local annotations = Merge.Merge_highlights(local_highlights,income_highlights,cached_highlights)
 
-    write_json_file(SidecarDir .. "/" .. FileName .. ".json", annotations) -- Save annotations local
-    DataAnnotations = annotations
+    write_json_file(sidecar_dir .. "/" .. file_name .. ".json", annotations) -- Save annotations local
 
     if self.ui and self.ui.annotation then
-        self.ui.annotation.annotations = DataAnnotations
+        self.ui.annotation.annotations = annotations
         if reload then
             is_reloading_due_to_sync = true
-            UIManager:tickAfterNext(function()
-            self.ui:reloadDocument()
-            end)
+            -- Defer reload: wait for any open modal (e.g. kosync ConfirmBox) to be
+            -- dismissed first. Initial 2s delay covers kosync's network round-trip.
+            self.reload_task = function()
+                if not self.ui or not self.ui.document then
+                    self.reload_task = nil
+                    is_reloading_due_to_sync = false
+                    return
+                end
+                local top = UIManager:getTopmostVisibleWidget()
+                if top and top.modal then
+                    UIManager:scheduleIn(0.5, self.reload_task)
+                else
+                    self.reload_task = nil
+                    UIManager:tickAfterNext(function()
+                        if self.ui and self.ui.document then
+                            self.ui:reloadDocument()
+                        else
+                            is_reloading_due_to_sync = false
+                        end
+                    end)
+                end
+            end
+            UIManager:scheduleIn(2, self.reload_task)
         end
     end
   
@@ -230,10 +370,10 @@ local function sanitize_filename(str)
 end
 
 function Highlightsync:onSyncBookHighlights()
-        self:SyncBookHighlights(false, true)   
+        self:SyncBookHighlights(false, true, true)
 end
 
-function Highlightsync:SyncBookHighlights(silent, reload)
+function Highlightsync:SyncBookHighlights(silent, reload, interactive)
     if not self:canSync() then return end
 
     if self.is_syncing then
@@ -241,32 +381,40 @@ function Highlightsync:SyncBookHighlights(silent, reload)
         return
     end
 
+    -- Debounce non-interactive (auto) syncs: skip if we synced less than 25s ago.
+    if not interactive then
+        local now = UIManager:getElapsedTimeSinceBoot()
+        if now - self.sync_timestamp <= SYNC_DEBOUNCE_DELAY then
+            logger.dbg("Highlightsync: Skipping auto-sync, last sync was less than 25s ago")
+            return
+        end
+    end
+
     -- enable lock
     self.is_syncing = true
 
     local doc_path = self.document and self.document.file
     local doc_settings = self.ui and self.ui.doc_settings
-    SidecarDir = doc_settings:getSidecarDir(doc_path)
-    ensure_dir_exists(SidecarDir)
-    DataAnnotations = self.ui.annotation.annotations -- self.ui.doc_settings.data.annotations
+    local sidecar_dir = doc_settings:getSidecarDir(doc_path)
+    ensure_dir_exists(sidecar_dir)
+    local data_annotations = self.ui.annotation.annotations  -- snapshot at call time; safe for deferred retries
+    local file_name = sanitize_filename(sidecar_dir:match("([^/]+)/*$"))
+    local json_path = sidecar_dir .. "/" .. file_name .. ".json"
 
-    Raw_name = SidecarDir:match("([^/]+)/*$")
-    FileName = sanitize_filename(Raw_name)
+    write_json_file(json_path, data_annotations) -- Save annotations local
 
-    write_json_file(SidecarDir .. "/" .. FileName .. ".json", self.ui.annotation.annotations) -- Save annotations local
-
-    SyncService.sync(self.settings.sync_server, SidecarDir .. "/" .. FileName .. ".json", 
+    SyncService.sync(self.settings.sync_server, json_path,
     function(local_path, cached_path, income_path)
-        local success = self:onSync(local_path, cached_path, income_path, reload)
-        self.is_syncing = false 
+        local success = self:onSync(local_path, cached_path, income_path, reload, sidecar_dir, file_name, data_annotations)
+        self.sync_timestamp = UIManager:getElapsedTimeSinceBoot()
         return success
     end,
     silent
     )
 
-         
-         
-    
+    -- Release lock: when offline, SyncService queues a retry without calling the
+    -- callback, so we must clear here or the lock stays set permanently.
+    self.is_syncing = false
 end
 
 
@@ -335,41 +483,70 @@ function Highlightsync:addToMainMenu(menu_items)
                     }
                     UIManager:show(dialogue)
                 end,
-                enabled_func = function() return self.settings.is_enabled end,
                 keep_menu_open = true,
             },
             {
                 text = _("Sync Highlights"),
                 callback = function()
-                    self:SyncBookHighlights(false, true)
+                    self:SyncBookHighlights(false, true, true)
                 end,
                 enabled_func = function() return self.canSync(self) end
             },
             {
-                text = _("Settings"), 
-                sub_item_table = {  
+                text = _("Settings"),
+                sub_item_table = {
                     {
-                        text = _("Sync on Book Open"),
-                        checked_func = function() return self.settings.sync_on_open end,
+                        text = _("Automatically sync highlights"),
+                        checked_func = function() return self.settings.auto_sync end,
+                        help_text = _([[Automatically sync highlights on open, close, resume, suspend, and network changes.]]),
                         callback = function()
-                            self.settings.sync_on_open = not self.settings.sync_on_open
+                            -- Mirror kosync: block enabling when wifi_enable_action isn't "turn_on",
+                            -- since prompt-mode WiFi nagging is unusable with auto-sync.
+                            if not self.settings.auto_sync
+                                    and Device:hasSeamlessWifiToggle()
+                                    and G_reader_settings:readSetting("wifi_enable_action") ~= "turn_on" then
+                                UIManager:show(InfoMessage:new{
+                                    text = _("You will have to switch the 'Action when Wi-Fi is off' Network setting to 'turn on' to be able to enable this feature!"),
+                                })
+                                return
+                            end
+                            self.settings.auto_sync = not self.settings.auto_sync
+                            self:registerEvents()
+                            if self.settings.auto_sync then
+                                -- Pull immediately so we don't silently overwrite remote changes.
+                                UIManager:nextTick(function()
+                                    self:SyncBookHighlights(false, true, true)
+                                end)
+                            end
                             G_reader_settings:saveSetting("highlight_sync", self.settings)
                         end,
                     },
                     {
-                        text = _("Sync on Book Close"),
-                        checked_func = function() return self.settings.sync_on_close end,
-                        callback = function()
-                            self.settings.sync_on_close = not self.settings.sync_on_close
-                            G_reader_settings:saveSetting("highlight_sync", self.settings)
+                        text_func = function()
+                            return T(_("Periodically sync every # pages (%1)"), self:getSyncPeriod())
                         end,
-                    },
-                    {
-                        text = _("Sync on Book on resume"),
-                        checked_func = function() return self.settings.sync_on_resume end,
-                        callback = function()
-                            self.settings.sync_on_resume = not self.settings.sync_on_resume
-                            G_reader_settings:saveSetting("highlight_sync", self.settings)
+                        enabled_func = function() return self.settings.auto_sync end,
+                        keep_menu_open = true,
+                        callback = function(touchmenu_instance)
+                            local SpinWidget = require("ui/widget/spinwidget")
+                            local items = SpinWidget:new{
+                                text = _([[Number of page turns between automatic syncs.
+Set to 0 to disable page-based syncing.]]),
+                                value = self.settings.pages_before_update or 0,
+                                value_min = 0,
+                                value_max = 999,
+                                value_step = 1,
+                                value_hold_step = 10,
+                                ok_text = _("Set"),
+                                title_text = _("Pages between syncs"),
+                                default_value = 0,
+                                callback = function(spin)
+                                    self.settings.pages_before_update = spin.value > 0 and spin.value or nil
+                                    G_reader_settings:saveSetting("highlight_sync", self.settings)
+                                    if touchmenu_instance then touchmenu_instance:updateItems() end
+                                end,
+                            }
+                            UIManager:show(items)
                         end,
                     },
                 }

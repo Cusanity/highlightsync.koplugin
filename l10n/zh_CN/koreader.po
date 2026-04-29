@@ -59,3 +59,52 @@ msgstr  "云存储：\n%1\n\n文件夹路径：\n%2\n\n在每台设备上设置�
 #: ../main.lua:205
 msgid   "Sync Highlights"
 msgstr  "同步"
+
+#: ../main.lua:127
+msgid   "Sync Highlights Now"
+msgstr  "立即同步高亮"
+
+#: ../main.lua:128
+msgid   "Synchronize highlights with the cloud."
+msgstr  "将高亮同步到云端。"
+
+#: ../main.lua:304
+msgid   "Not available"
+msgstr  "不可用"
+
+#: ../main.lua:310
+msgid   "Never"
+msgstr  "从不"
+
+#: ../main.lua:484
+msgid   "Settings"
+msgstr  "设置"
+
+#: ../main.lua:487
+msgid   "Automatically sync highlights"
+msgstr  "自动同步高亮"
+
+#: ../main.lua:489
+msgid   "Automatically sync highlights on open, close, resume, suspend, and network changes."
+msgstr  "在打开、关闭、恢复、挂起和网络变化时自动同步高亮。"
+
+#: ../main.lua:497
+msgid   "You will have to switch the 'Action when Wi-Fi is off' Network setting to 'turn on' to be able to enable this feature!"
+msgstr  "您需要将网络设置中的"Wi-Fi 关闭时的操作"改为"开启"才能启用此功能！"
+
+#: ../main.lua:514
+#, lua-format
+msgid   "Periodically sync every # pages (%1)"
+msgstr  "每 # 页自动同步（%1）"
+
+#: ../main.lua:521
+msgid   "Number of page turns between automatic syncs.\nSet to 0 to disable page-based syncing."
+msgstr  "两次自动同步之间的翻页次数。\n设为 0 则禁用基于页数的同步。"
+
+#: ../main.lua:528
+msgid   "Set"
+msgstr  "设定"
+
+#: ../main.lua:529
+msgid   "Pages between syncs"
+msgstr  "同步间隔页数"
