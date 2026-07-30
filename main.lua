@@ -16,6 +16,32 @@ local NetworkMgr = require("ui/network/manager")
 local logger = require("logger")
 local time = require("ui/time")
 
+-- Patch SyncService.sync (any koreader version) to support an on_success callback
+-- that replaces the built-in "Successfully synchronized." Notification.
+if not SyncService._highlightsync_on_success_patch then
+    local _orig_sync = SyncService.sync
+    SyncService.sync = function(server, file_path, sync_cb, is_silent, on_success)
+        if on_success == nil then
+            return _orig_sync(server, file_path, sync_cb, is_silent)
+        end
+        local synced = false
+        local _orig_show = UIManager.show
+        UIManager.show = function(mgr, widget, ...)
+            if getmetatable(widget) == Notification then
+                synced = true
+                return
+            end
+            return _orig_show(mgr, widget, ...)
+        end
+        _orig_sync(server, file_path, sync_cb, is_silent)
+        UIManager.show = _orig_show
+        if synced then
+            on_success()
+        end
+    end
+    SyncService._highlightsync_on_success_patch = true
+end
+
 local SYNC_DEBOUNCE_DELAY = time.s(25)
 
 local is_reloading_due_to_sync = false
@@ -547,7 +573,7 @@ function Highlightsync:addToMainMenu(menu_items)
                         callback = function(touchmenu_instance)
                             local SpinWidget = require("ui/widget/spinwidget")
                             local items = SpinWidget:new{
-                                text = _("Number of page turns between automatic syncs.\nSet to 0 to disable page-based syncing."),
+                                text = _("Number of page turns between automatic syncs.\nSet to 0 to disable page-based syncing."), -- luacheck: ignore 631
                                 value = self.settings.pages_before_update or 0,
                                 value_min = 0,
                                 value_max = 999,
