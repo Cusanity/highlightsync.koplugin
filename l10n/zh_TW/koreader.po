@@ -15,17 +15,17 @@ msgstr  "Project-Id-Version: highlightsync.koplugin\n"
         "Content-Transfer-Encoding: 8bit\n"
         "Plural-Forms: nplurals=1; plural=0;\n"
 
+#: ../_meta.lua:4
+msgid   "HighlightSync"
+msgstr  "高亮同步"
+
 #: ../_meta.lua:5
-msgid   "Synchronize book highlights across devices using cloud storage (WebDAV/Dropbox)."
-msgstr  "使用雲端儲存（WebDAV/Dropbox）跨裝置同步書籍高亮。"
+msgid   "HighlightSync is a plugin for KOReader that synchronizes and merges your highlights, notes, and bookmarks across multiple devices or cloud backup locations."
+msgstr  "HighlightSync 是一個 KOReader 插件，可跨多台裝置或雲端備份位置同步和合併您的高亮、筆記和書籤。"
 
 #: ../main.lua:69
 msgid   "Highlight Sync"
 msgstr  "高亮同步"
-
-#: ../main.lua:119
-msgid   "Syncing book highlights. This may take a while."
-msgstr  "正在同步書籍高亮，請稍候。"
 
 #: ../main.lua:142
 msgid   "Sync Cloud"
@@ -84,7 +84,7 @@ msgstr  "設定"
 msgid   "Automatically sync highlights"
 msgstr  "自動同步高亮"
 
-#: ../main.lua:489
+#: ../main.lua:518
 msgid   "Automatically sync highlights on open, close, resume, suspend, and network changes."
 msgstr  "在開啟、關閉、恢復、暫停和網路變更時自動同步高亮。"
 
@@ -97,7 +97,7 @@ msgstr  "您需要將網路設定中的「Wi-Fi 關閉時的動作」改為「�
 msgid   "Periodically sync every # pages (%1)"
 msgstr  "每 # 頁自動同步（%1）"
 
-#: ../main.lua:521
+#: ../main.lua:550
 msgid   "Number of page turns between automatic syncs.\nSet to 0 to disable page-based syncing."
 msgstr  "兩次自動同步之間的翻頁次數。\n設為 0 則停用基於頁數的同步。"
 
@@ -108,3 +108,7 @@ msgstr  "設定"
 #: ../main.lua:529
 msgid   "Pages between syncs"
 msgstr  "同步間隔頁數"
+
+#: ../main.lua:425
+msgid   "Highlights synchronized."
+msgstr  "高亮同步成功"

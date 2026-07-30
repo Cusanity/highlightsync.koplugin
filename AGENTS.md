@@ -69,6 +69,10 @@ annotation events.
 - **No build step** — Lua files run directly in KOReader.
 - **Lint**: `luacheck -q .` from inside `highlightsync.koplugin/` (see repo task
   "HighlightSync: lint").
+- **i18n check**: `python check_i18n.py` from inside `highlightsync.koplugin/`.
+  Scans every `_()` call in all `.lua` files and verifies each string has a `msgid` entry in
+  **both** `l10n/zh_CN/koreader.po` and `l10n/zh_TW/koreader.po`. Exit 0 = clean.
+  **Run this after every change that touches a `.lua` file or a `.po` file.**
 - **Manual test**: install the plugin on a KOReader device or emulator, create annotations on
   two devices, sync both, and confirm the merged result contains all annotations from both sides
   without duplicates.
@@ -89,4 +93,6 @@ When editing sync orchestration in `main.lua`:
 
 When adding UI strings:
 
-6. Wrap with `_()` and add to both `l10n/zh_CN/` and `l10n/zh_TW/` `.po` files.
+6. Wrap with `_()` and add to both `l10n/zh_CN/koreader.po` and `l10n/zh_TW/koreader.po`.
+7. **Run `python check_i18n.py` and fix all errors before committing.**
+   Exit 0 = clean. Any missing or orphaned msgid is a hard blocker.

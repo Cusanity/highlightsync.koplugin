@@ -6,6 +6,7 @@ local ConfirmBox = require("ui/widget/confirmbox")
 local FFIUtil = require("ffi/util")
 local T = FFIUtil.template
 local InfoMessage = require("ui/widget/infomessage")
+local Notification = require("ui/widget/notification")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("highlightsync_gettext")
 local SyncService = require("frontend/apps/cloudstorage/syncservice")
@@ -317,6 +318,8 @@ function Highlightsync:onSync(local_path, cached_path, income_path, reload, side
 
     local annotations, local_changed = Merge.Merge_highlights(local_highlights, income_highlights, cached_highlights)
 
+    self.last_sync_changed = local_changed
+
     if not local_changed then
         logger.dbg("Highlightsync: no changes after merge, skipping reload")
         return true
@@ -408,13 +411,22 @@ function Highlightsync:SyncBookHighlights(silent, reload, interactive)
 
     write_json_file(json_path, data_annotations) -- Save annotations local
 
+    self.last_sync_changed = false
     SyncService.sync(self.settings.sync_server, json_path,
     function(local_path, cached_path, income_path)
         local success = self:onSync(local_path, cached_path, income_path, reload, sidecar_dir, file_name, data_annotations)
         self.sync_timestamp = UIManager:getElapsedTimeSinceBoot()
         return success
     end,
-    silent
+    silent,
+    function()
+        if interactive or self.last_sync_changed then
+            UIManager:show(Notification:new{
+                text = _("Highlights synchronized."),
+                timeout = 2,
+            })
+        end
+    end
     )
 
     -- Release lock: when offline, SyncService queues a retry without calling the
@@ -503,7 +515,7 @@ function Highlightsync:addToMainMenu(menu_items)
                     {
                         text = _("Automatically sync highlights"),
                         checked_func = function() return self.settings.auto_sync end,
-                        help_text = _([[Automatically sync highlights on open, close, resume, suspend, and network changes.]]),
+                        help_text = _("Automatically sync highlights on open, close, resume, suspend, and network changes."),
                         callback = function()
                             -- Mirror kosync: block enabling when wifi_enable_action isn't "turn_on",
                             -- since prompt-mode WiFi nagging is unusable with auto-sync.
@@ -535,8 +547,7 @@ function Highlightsync:addToMainMenu(menu_items)
                         callback = function(touchmenu_instance)
                             local SpinWidget = require("ui/widget/spinwidget")
                             local items = SpinWidget:new{
-                                text = _([[Number of page turns between automatic syncs.
-Set to 0 to disable page-based syncing.]]),
+                                text = _("Number of page turns between automatic syncs.\nSet to 0 to disable page-based syncing."),
                                 value = self.settings.pages_before_update or 0,
                                 value_min = 0,
                                 value_max = 999,
