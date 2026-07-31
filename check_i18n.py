@@ -114,5 +114,44 @@ def main() -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Check 2 — non-ASCII string literals concatenated with _()
+#
+# Flags patterns like:  "\u2713 " .. _(...)  or  _(...) .. " \u2713"
+# The whole visible string must come from a single _() call.
+# Suppress intentional ones with  -- noqa: i18n  on the same line.
+# ---------------------------------------------------------------------------
+_GETTEXT_CONCAT_BEFORE_RE = re.compile(
+    r'"((?:[^"\\]|\\.)*[^\x00-\x7F](?:[^"\\]|\\.)*)"\s*\.\.\s*_\('
+)
+_GETTEXT_CONCAT_AFTER_RE = re.compile(
+    r'_\([^)]*\)\s*\.\.\s*"((?:[^"\\]|\\.)*[^\x00-\x7F](?:[^"\\]|\\.)*)",'
+)
+
+
+def check_partial_translations() -> int:
+    errors = 0
+    for lua_file in sorted(HERE.glob("*.lua")):
+        text = lua_file.read_text(encoding="utf-8")
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if "-- noqa: i18n" in line:
+                continue
+            for pat in (_GETTEXT_CONCAT_BEFORE_RE, _GETTEXT_CONCAT_AFTER_RE):
+                if pat.search(line):
+                    snippet = line.strip()[:100]
+                    print(
+                        f"  {lua_file.name}:{lineno}: non-ASCII literal concatenated with "
+                        f"_() — use a dedicated translation key: {snippet!r}"
+                    )
+                    errors += 1
+                    break
+    return errors
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    rc = main()
+    partial_errors = check_partial_translations()
+    if partial_errors:
+        print(f"\n{partial_errors} partial-translation error(s). Fix them before committing.",
+              file=sys.stderr)
+    sys.exit(1 if rc or partial_errors else 0)

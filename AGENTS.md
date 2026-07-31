@@ -39,6 +39,9 @@ All user-visible strings **must** go through `highlightsync_gettext.lua` (aliase
 - Wrap every user-visible string: `_("Your string here")`.
 - When you add a new string, add it to **both** `l10n/zh_CN/*.po` and `l10n/zh_TW/*.po`.
 - Never hardcode a translated string directly in `main.lua` or other Lua files.
+- **Never concatenate a non-ASCII string literal with `_()`.**  Patterns like
+  `"✓ " .. _("key")` produce partially-translated strings that `check_i18n.py` will flag.
+  Put the whole visible string into a dedicated translation key instead.
 
 ## Merge contract
 
