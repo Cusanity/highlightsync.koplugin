@@ -400,7 +400,8 @@ end
 
 local function sanitize_filename(str)
     if not str then return "" end
-    return str:gsub("[^%w%.%-%_]", "_")
+    -- Only strip characters that are unsafe in remote (WebDAV/Dropbox) filenames.
+    return str:gsub('[\\/:*?"<>|%z]', "_")
 end
 
 function Highlightsync:onSyncBookHighlights()
