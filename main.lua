@@ -29,6 +29,7 @@ local function wrap_sync_with_on_success(orig_sync)
         end
         local synced = false
         local _orig_show = UIManager.show
+        ---@diagnostic disable-next-line: duplicate-set-field -- intentional temporary monkey-patch
         UIManager.show = function(mgr, widget, ...)
             if getmetatable(widget) == Notification then
                 synced = true

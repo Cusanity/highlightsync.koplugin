@@ -4,7 +4,7 @@ local function parse_datetime_cached()
         if not str then return 0 end
         if cache[str] then return cache[str] end
         local y, m, d, h, min, s = str:match("(%d+)-(%d+)-(%d+) (%d+):(%d+):(%d+)")
-        local t = os.time{year=tonumber(y), month=tonumber(m), day=tonumber(d), hour=tonumber(h), min=tonumber(min), sec=tonumber(s)}
+        local t = os.time{year=tonumber(y) or 0, month=tonumber(m) or 0, day=tonumber(d) or 0, hour=tonumber(h) or 0, min=tonumber(min) or 0, sec=tonumber(s) or 0}
         cache[str] = t
         return t
     end
@@ -71,7 +71,7 @@ local function merge_highlights(local_annotations, server_annotations, last_sync
     -- Processa highlights do servidor
     for key, server_highlight in pairs(server_map) do
         if last_sync_map[key] ~= nil and local_map[key] == nil then
-            -- foi deletado localmente, ignorar
+            local_changed = local_changed -- foi deletado localmente, ignorar
         else
             if not local_map[key] then
                 merged[key] = server_highlight

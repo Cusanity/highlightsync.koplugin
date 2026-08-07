@@ -12,8 +12,7 @@ table.insert(filemanager_order.tools, pos, "highlight_sync")
 
 local reader_order = require("ui/elements/reader_menu_order")
 
-
-local pos = 1
+pos = 1
 for index, value in ipairs(reader_order.tools) do
     if value == "statistics" then
         pos = index + 1

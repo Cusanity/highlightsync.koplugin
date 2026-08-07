@@ -124,8 +124,8 @@ function GetText_mt.__index.changeLang(new_lang)
     GetText.current_lang = "C"
 
     if new_lang == "C" or new_lang == nil or new_lang == ""
-       or new_lang:match("^en_US") == "en_US" then 
-        return 
+       or new_lang:match("^en_US") == "en_US" then
+        return
     end
 
     -- Strip encoding suffix if present (e.g., "zh_CN.UTF-8" -> "zh_CN")
@@ -167,7 +167,7 @@ function GetText_mt.__index.changeLang(new_lang)
                 if not headers and data.msgid == "" then
                     headers = data.msgstr
                     local plural_forms = data.msgstr:match("Plural%-Forms: (.*)")
-                    
+
                     -- Guard against missing Plural-Forms header
                     if not plural_forms then
                         GetText.getPlural = getDefaultPlural
@@ -230,7 +230,7 @@ function GetText_mt.__index.changeLang(new_lang)
                     end)
                     data[what] = (data[what] or "") .. s
                 elseif what and s == "" and fuzzy then
-                    -- Ignore fuzzy entries
+                    fuzzy = fuzzy -- Ignore fuzzy entries
                 else
                     fuzzy = false
                 end
