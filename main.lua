@@ -9,37 +9,44 @@ local InfoMessage = require("ui/widget/infomessage")
 local Notification = require("ui/widget/notification")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("highlightsync_gettext")
-local SyncService = require("frontend/apps/cloudstorage/syncservice")
 local Merge = require("merge")
 local rapidjson = require("rapidjson")
 local NetworkMgr = require("ui/network/manager")
 local logger = require("logger")
 local time = require("ui/time")
 
--- Patch SyncService.sync (any koreader version) to support an on_success callback
--- that replaces the built-in "Successfully synchronized." Notification.
-if not SyncService._highlightsync_on_success_patch then
-    local _orig_sync = SyncService.sync
-    SyncService.sync = function(server, file_path, sync_cb, is_silent, on_success)
-        if on_success == nil then
-            return _orig_sync(server, file_path, sync_cb, is_silent)
-        end
-        local synced = false
-        local _orig_show = UIManager.show
-        UIManager.show = function(mgr, widget, ...)
-            if getmetatable(widget) == Notification then
-                synced = true
-                return
+-- KOReader removed the standalone frontend/apps/cloudstorage/syncservice module and
+-- folded its logic into the cloudstorage.koplugin plugin instance (self.ui.cloudstorage).
+-- Fetch that instance lazily (it may not be ready yet when this file is first required)
+-- and patch its :sync() once to support an on_success callback that replaces the
+-- built-in "Successfully synchronized." Notification.
+local function get_cloud_sync(ui)
+    local cs = ui and ui.cloudstorage
+    if not cs then return nil end
+    if not cs._highlightsync_on_success_patch then
+        local _orig_sync = cs.sync
+        cs.sync = function(this, server, file_path, sync_cb, is_silent, on_success)
+            if on_success == nil then
+                return _orig_sync(this, server, file_path, sync_cb, is_silent)
             end
-            return _orig_show(mgr, widget, ...)
+            local synced = false
+            local _orig_show = UIManager.show
+            UIManager.show = function(mgr, widget, ...)
+                if getmetatable(widget) == Notification then
+                    synced = true
+                    return
+                end
+                return _orig_show(mgr, widget, ...)
+            end
+            _orig_sync(this, server, file_path, sync_cb, is_silent)
+            UIManager.show = _orig_show
+            if synced then
+                on_success()
+            end
         end
-        _orig_sync(server, file_path, sync_cb, is_silent)
-        UIManager.show = _orig_show
-        if synced then
-            on_success()
-        end
+        cs._highlightsync_on_success_patch = true
     end
-    SyncService._highlightsync_on_success_patch = true
+    return cs
 end
 
 local SYNC_DEBOUNCE_DELAY = time.s(25)
@@ -395,7 +402,7 @@ function Highlightsync:is_doc()
 end
 
 function Highlightsync:canSync()
-    return self.is_doc(self) and self.settings.sync_server ~= nil
+    return self.is_doc(self) and self.settings.sync_server ~= nil and self.ui.cloudstorage ~= nil
 end
 
 local function sanitize_filename(str)
@@ -438,8 +445,15 @@ function Highlightsync:SyncBookHighlights(silent, reload, interactive)
 
     write_json_file(json_path, data_annotations) -- Save annotations local
 
+    local cloud_sync = get_cloud_sync(self.ui)
+    if not cloud_sync then
+        logger.warn("Highlightsync: Cloud storage plugin unavailable, cannot sync.")
+        self.is_syncing = false
+        return
+    end
+
     self.last_sync_changed = false
-    SyncService.sync(self.settings.sync_server, json_path,
+    cloud_sync:sync(self.settings.sync_server, json_path,
     function(local_path, cached_path, income_path)
         local success = self:onSync(local_path, cached_path, income_path, reload, sidecar_dir, file_name, data_annotations)
         self.sync_timestamp = UIManager:getElapsedTimeSinceBoot()
@@ -456,7 +470,7 @@ function Highlightsync:SyncBookHighlights(silent, reload, interactive)
     end
     )
 
-    -- Release lock: when offline, SyncService queues a retry without calling the
+    -- Release lock: when offline, the cloud sync queues a retry without calling the
     -- callback, so we must clear here or the lock stays set permanently.
     self.is_syncing = false
 end
@@ -470,17 +484,19 @@ function Highlightsync:addToMainMenu(menu_items)
             {
                 text = _("Sync Cloud"),
                 callback = function(touchmenu_instance)
+                    local cs = self.ui.cloudstorage
+                    if not cs then
+                        UIManager:show(InfoMessage:new{
+                            text = _("The Cloud storage plugin is required for syncing but isn't available."),
+                        })
+                        return
+                    end
                     local server = self.settings.sync_server
                     local edit_cb = function()
-                        local sync_settings = SyncService:new{}
-                        sync_settings.onClose = function(this)
-                            UIManager:close(this)
-                        end
-                        sync_settings.onConfirm = function(sv)
+                        cs:onShowCloudStorageList(function(sv)
                             self.settings.sync_server = sv
                             touchmenu_instance:updateItems()
-                        end
-                        UIManager:show(sync_settings)
+                        end)
                     end
                     if not server then
                         edit_cb()
@@ -520,7 +536,7 @@ function Highlightsync:addToMainMenu(menu_items)
                     local type = server.type == "dropbox" and " (DropBox)" or " (WebDAV)"
                     dialogue = ButtonDialog:new{
                         title = T(_("Cloud storage:\n%1\n\nFolder path:\n%2\n\nSet up the same cloud folder on each device to sync across your devices."),
-                                     server.name.." "..type, SyncService.getReadablePath(server)),
+                                     server.name.." "..type, cs.getReadablePath(server)),
                         buttons = {
                             {delete_button, edit_button, close_button}
                         },
