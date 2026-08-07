@@ -15,34 +15,68 @@ local NetworkMgr = require("ui/network/manager")
 local logger = require("logger")
 local time = require("ui/time")
 
--- KOReader removed the standalone frontend/apps/cloudstorage/syncservice module and
--- folded its logic into the cloudstorage.koplugin plugin instance (self.ui.cloudstorage).
--- Fetch that instance lazily (it may not be ready yet when this file is first required)
--- and patch its :sync() once to support an on_success callback that replaces the
--- built-in "Successfully synchronized." Notification.
+-- KOReader used to ship a standalone frontend/apps/cloudstorage/syncservice module;
+-- newer versions removed it and folded its logic into the cloudstorage.koplugin
+-- plugin instance (self.ui.cloudstorage) instead. Support both so this plugin keeps
+-- working regardless of which KOReader version the user is on.
+--
+-- Wraps a sync function (old module's static .sync, or new plugin's :sync method) so
+-- an on_success callback can replace the built-in "Successfully synchronized." Notification.
+local function wrap_sync_with_on_success(orig_sync)
+    return function(server, file_path, sync_cb, is_silent, on_success)
+        if on_success == nil then
+            return orig_sync(server, file_path, sync_cb, is_silent)
+        end
+        local synced = false
+        local _orig_show = UIManager.show
+        UIManager.show = function(mgr, widget, ...)
+            if getmetatable(widget) == Notification then
+                synced = true
+                return
+            end
+            return _orig_show(mgr, widget, ...)
+        end
+        orig_sync(server, file_path, sync_cb, is_silent)
+        UIManager.show = _orig_show
+        if synced then
+            on_success()
+        end
+    end
+end
+
+-- Returns a table with :sync(), .getReadablePath(), and :onShowCloudStorageList(),
+-- normalized across both the old standalone module and the new plugin instance.
 local function get_cloud_sync(ui)
+    local ok, OldSyncService = pcall(require, "frontend/apps/cloudstorage/syncservice")
+    if ok and OldSyncService then
+        if not OldSyncService._highlightsync_on_success_patch then
+            OldSyncService.sync = wrap_sync_with_on_success(OldSyncService.sync)
+            OldSyncService._highlightsync_on_success_patch = true
+        end
+        return {
+            sync = function(_, server, file_path, sync_cb, is_silent, on_success)
+                return OldSyncService.sync(server, file_path, sync_cb, is_silent, on_success)
+            end,
+            getReadablePath = OldSyncService.getReadablePath,
+            onShowCloudStorageList = function(_, callback)
+                local dialog = OldSyncService:new{}
+                dialog.onClose = function(this) UIManager:close(this) end
+                dialog.onConfirm = callback
+                UIManager:show(dialog)
+            end,
+        }
+    end
+
     local cs = ui and ui.cloudstorage
     if not cs then return nil end
     if not cs._highlightsync_on_success_patch then
         local _orig_sync = cs.sync
-        cs.sync = function(this, server, file_path, sync_cb, is_silent, on_success)
-            if on_success == nil then
-                return _orig_sync(this, server, file_path, sync_cb, is_silent)
-            end
-            local synced = false
-            local _orig_show = UIManager.show
-            UIManager.show = function(mgr, widget, ...)
-                if getmetatable(widget) == Notification then
-                    synced = true
-                    return
-                end
-                return _orig_show(mgr, widget, ...)
-            end
-            _orig_sync(this, server, file_path, sync_cb, is_silent)
-            UIManager.show = _orig_show
-            if synced then
-                on_success()
-            end
+        local wrapped = wrap_sync_with_on_success(function(server, file_path, sync_cb, is_silent)
+            return _orig_sync(cs, server, file_path, sync_cb, is_silent)
+        end)
+        -- cs.sync is called as cs:sync(...), so it must accept the leading self arg.
+        cs.sync = function(_, server, file_path, sync_cb, is_silent, on_success)
+            return wrapped(server, file_path, sync_cb, is_silent, on_success)
         end
         cs._highlightsync_on_success_patch = true
     end
@@ -402,7 +436,7 @@ function Highlightsync:is_doc()
 end
 
 function Highlightsync:canSync()
-    return self.is_doc(self) and self.settings.sync_server ~= nil and self.ui.cloudstorage ~= nil
+    return self.is_doc(self) and self.settings.sync_server ~= nil and get_cloud_sync(self.ui) ~= nil
 end
 
 local function sanitize_filename(str)
@@ -484,7 +518,7 @@ function Highlightsync:addToMainMenu(menu_items)
             {
                 text = _("Sync Cloud"),
                 callback = function(touchmenu_instance)
-                    local cs = self.ui.cloudstorage
+                    local cs = get_cloud_sync(self.ui)
                     if not cs then
                         UIManager:show(InfoMessage:new{
                             text = _("The Cloud storage plugin is required for syncing but isn't available."),
