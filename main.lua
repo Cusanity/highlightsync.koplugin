@@ -10,10 +10,15 @@ local Notification = require("ui/widget/notification")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("highlightsync_gettext")
 local Merge = require("merge")
-local rapidjson = require("rapidjson")
 local NetworkMgr = require("ui/network/manager")
 local logger = require("logger")
 local time = require("ui/time")
+
+local rapidjson
+local function get_rapidjson()
+    rapidjson = rapidjson or require("rapidjson")
+    return rapidjson
+end
 
 -- KOReader used to ship a standalone frontend/apps/cloudstorage/syncservice module;
 -- newer versions removed it and folded its logic into the cloudstorage.koplugin
@@ -167,7 +172,7 @@ local function read_json_file(path)
         return {}
     end
 
-    local ok, data = pcall(rapidjson.decode, content)
+    local ok, data = pcall(get_rapidjson().decode, content)
     if not ok or type(data) ~= "table" then
         return {}
     end
@@ -181,7 +186,7 @@ local function write_json_file(path, data)
     local file = io.open(path, "w")
     if not file then return false end
 
-    file:write(rapidjson.encode(with_stringified_ext_keys(data)))
+    file:write(get_rapidjson().encode(with_stringified_ext_keys(data)))
     file:close()
     return true
 end
